@@ -7,9 +7,9 @@
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.87.0/phaser.min.js"></script>
 
 	<script>
+	let music;
 	let player_num=0;
-
-	let ws= new WebSocket('ws://10.40.2.15:7777');
+	let ws= new WebSocket('ws://192.168.1.153:7777');
 	ws.onmessage = function (msg){
 		console.log(msg.data);
 
@@ -25,6 +25,14 @@
 			else if (player_num == 2){
 				player1.y = data.y;
 			}
+		else if (player_num == 0){ 
+        		if (data.player == 1) {
+           			player1.y = data.y;
+       			}
+			else if (data.player == 2) {
+            			player2.y = data.y;
+       			}
+    		}
 		}
 		else if (data.by !=null){
 			ball.x = data.bx;
@@ -40,20 +48,77 @@
 		}
 		else if (data.game_over !=null){
 			game_over = true;
+			if (player_num == 1 || player_num ==2){
 			if (data.winner == player_num){
 				game_over_text.setText("YOU WIN");	
-				game_over_text.setColor("#00ff00");	
+				game_over_text.setColor("#00ff00");
 
 			}
 			else{
 				game_over_text.setText("GAME OVER");
 				game_over_text.setColor("#ff2D00");
 			}
-		}
-		else if (data.game_start !=null){
-			game_start =true
+
+			}
+
+			else{
+				game_over_text.setText("");
+			}
+
+
+			if(player_num  == 0 && data.player_disconnected == null){
+				show_winner_text.setText("PLAYER " + data.winner + " IS THE WINNER");
+				show_winner_text.setColor("#fff700");
+			}
 		}
 
+		else if (data.game_start !=null && player_num !=0){
+			let count = 3;
+			let countdownInterval = setInterval(() => {
+    		if (count >= 1) {
+    	    	countdown_text.setText(count);
+        		count--;
+   			} 
+			else {
+				countdown_text.setText("START!");
+               	clearInterval(countdownInterval);
+				setTimeout(() => {
+				countdown_text.setText("");
+				game_start =true;
+				ws.send(JSON.stringify({ play_audio: true }));
+
+				},1000);
+			}
+		}, 1000);
+		}
+
+		if (data.play_audio && music) {
+    			let difStateMusic = (Date.now() - data.music_state) / 1000;
+    
+    			if (!music.isPlaying) {
+        			music.play();
+    			}
+    
+    		music.setSeek(difStateMusic);
+		}		
+
+		else if (data.player_disconnected == true && game_over == false) {
+			if(player_num==1 || player_num ==2){
+			 	game_over = true;
+    			player_desconected_text.setText("THE OTHER PLAYER HAS DISCONNECTED");
+    			player_desconected_text.setColor("#ffd100");
+				game_over_text.setText("YOU WIN");	
+				game_over_text.setColor("#00ff00");
+			}
+			else if (player_num == 0){
+				game_over_text.setText("");
+				player_desconected_text.setText("");
+				show_winner_text.setText("PLAYER " + data.winner + " WINS, BECAUSE THE\nOTHERPLAYER DISCONNECTED");
+				show_winner_text.setFontSize(45);
+				player_desconected_text.setColor("#ffd100");
+
+			}
+		}
 
 	};
 
@@ -95,9 +160,11 @@ let player2_score_text;
 let palaPlayer;
 let game_over_text;
 let player_desconected_text;
+let countdown_text;
 
 function preload ()
 {
+ this.load.audio('music', 'Bola_de_Drac_Millor_del_mon.ogg');
 }
 
 function create ()
@@ -109,11 +176,23 @@ function create ()
 	palaPlayer = this.input.keyboard.createCursorKeys();
 
 	player1_score_text = this.add.text(100, 20, `Player 1: ${scorePlayer1}`, { fontSize: '20px', fill: '#fff' });
-    player2_score_text = this.add.text(600, 20, `Player 2: ${scorePlayer2}`, { fontSize: '20px', fill: '#fff' });
-    player_desconected_text = this.add.text(win_w/2, win_h/2,`` , { fontFamily: 'Comics Sans MS',  fontSize: '96px', fill: '' });
-    game_over_text = this.add.text(win_w/2, win_h/2,`` , { fontFamily: 'Comics Sans MS',  fontSize: '96px', fill: '' });
+   	player2_score_text = this.add.text(600, 20, `Player 2: ${scorePlayer2}`, { fontSize: '20px', fill: '#fff' });
+	player_desconected_text = this.add.text(win_w/2, 80, ``, {fontFamily: 'Comics Sans MS',  fontSize: '35px', fill: ''});
+	game_over_text = this.add.text(win_w/2, win_h/2,`` , { fontFamily: 'Comics Sans MS',  fontSize: '96px', fill: '' });
+	show_winner_text = this.add.text(win_w/2, win_h/2,`` , { fontFamily: 'Comics Sans MS',  fontSize: '60px', fill: '#fff700' });
+	countdown_text =  this.add.text(win_w/2, win_h/2,``, {fontFamily: 'Comics Sans MS',  fontSize: '96px', fill: '#fff'});
 	game_over_text.setOrigin(0.5,0.5);
+	show_winner_text.setOrigin(0.5,0.5);
 	player_desconected_text.setOrigin(0.5,0.5);
+	countdown_text.setOrigin(0.5,0.5);
+	music = this.sound.add('music', { loop: true, volume: 0.5 });
+	
+	this.input.once('pointerdown', () => {
+       		if (!music.isPlaying && data.play_audio) {
+           		music.play();
+        	}
+    	});
+
 }
 function send_scores(){
 	let score ={score1: scorePlayer1, score2: scorePlayer2};
@@ -149,14 +228,12 @@ function update ()
 		player1_score_text.setText(`Player 1: ${scorePlayer1}`);
 		send_scores();
         resetBall();
-        //updateScores();
 
     } else if (ball.x < 0) {
         scorePlayer2++;
 		player2_score_text.setText(`Player 2: ${scorePlayer2}`);
 		send_scores();
         resetBall();
-        //updateScores();
     }
 	if (Phaser.Geom.Intersects.RectangleToRectangle(ball.getBounds(), player1.getBounds())){
 		ball_x_dir =1;
@@ -172,18 +249,18 @@ function update ()
 
     // Movimento Player 1
 	 if (palaPlayer.up.isDown){
-	 	if (player_num==1){
+	 	if (player_num==1 && player1.y - players_h / 2 > 0){
 	 		player1.y -=1
 		}
-		else if (player_num==2){
+		else if (player_num==2 && player2.y - players_h / 2 > 0){
 			player2.y -=1
 		}
 	}
-	else if (palaPlayer.down.isDown){
-		if (player_num==1){
+	else if (palaPlayer.down.isDown ){
+		if (player_num==1 && player1.y + players_h / 2 < win_h){
 			player1.y +=1
 		}
-		else if (player_num==2){
+		else if (player_num==2 && player2.y + players_h / 2 < win_h){
 			player2.y +=1
 		}
 	}
@@ -199,32 +276,12 @@ function update ()
 
 	ws.send (JSON.stringify(player_pos));
 }
-function get_ball_direction(){
-	let angle= Phaser.Math.Between(-75,75);
-	if (Math.abs(angle)<10){
-		if (angle<0){
-			angle -=10;
-		}
-		else {
-			angle+=10;
-		}
-	}	
-	angle =Phaser.Math.DegToRad(angle);
-	ball_x_dir =Math.cos(angle) * (Math.random() < 0.5 ? -1:1);
-	ball_y_dir = Math.sin(angle);
 
-
-}
 function resetBall(){ 
     ball.x = ball_x_init;
 	ball.y = ball_y_init;
     ball_x_dir = (Math.random() < 0.5 ? -1 : 1) * 2;
     ball_y_dir = (Math.random() < 0.5 ? -1 : 1) * 2;
-}
-
-function updateScores() {
-	player1_score_text.setText(`Player 1: ${scorePlayer1}`);
-   	player2_score_text.setText(`Player 2: ${scorePlayer2}`);
 }
 
 </script>
